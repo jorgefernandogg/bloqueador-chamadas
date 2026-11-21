@@ -48,4 +48,17 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    lint {
+        abortOnError = true
+        checkReleaseBuilds = true
+        // Erros de segurança do Lint (ex.: componente exportado sem proteção) quebram o build.
+        error += listOf("ExportedService", "ExportedReceiver", "HardcodedDebugMode", "AllowBackup")
+        // App pessoal sem tradução e com UI montada em código.
+        disable += listOf("SetTextI18n", "HardcodedText", "UseSwitchCompatOrMaterialCode", "OldTargetApi", "GradleDependency", "AndroidGradlePluginVersion", "NewerVersionAvailable")
+    }
+}
+
+dependencies {
+    testImplementation("junit:junit:4.13.2")
 }

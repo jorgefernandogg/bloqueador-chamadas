@@ -1,58 +1,115 @@
-name: Build APK
+name: Build, testes e release
 
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
+# Padrão: somente leitura. Só o job de release ganha escrita.
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  verify:
+    name: Testes unitários, Lint e APK
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
         with:
           gradle-version: "8.11.1"
 
-      - name: Preparar keystore
-        env:
-          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+      - name: Testes unitários
+        run: gradle :app:testReleaseUnitTest --no-daemon
+
+      - name: Lint (falha em erro)
+        run: gradle :app:lintRelease --no-daemon
+
+      - name: Compilar APK
         run: |
-          if [ -n "$KEYSTORE_B64" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
-            echo "KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
-          else
-            echo "::warning::Sem KEYSTORE_B64 — APK assinado com chave de debug"
-          fi
+          gradle :app:assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk bloqueador-chamadas.apk
+          sha256sum bloqueador-chamadas.apk | tee bloqueador-chamadas.apk.sha256
 
-      - name: Compilar
-        env:
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: gradle :app:assembleRelease --no-daemon --stacktrace
-
-      - name: Renomear APK
-        run: cp app/build/outputs/apk/release/app-release.apk bloqueador-chamadas.apk
-
-      - uses: actions/upload-artifact@v4
+      - name: Relatórios
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: bloqueador-chamadas
-          path: bloqueador-chamadas.apk
+          name: relatorios
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: ignore
 
-      - name: Publicar release
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: apk
+          path: |
+            bloqueador-chamadas.apk
+            bloqueador-chamadas.apk.sha256
+
+  e2e:
+    name: Teste ponta a ponta no emulador
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: apk
+
+      - name: Habilitar KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Emulador + ligações simuladas
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash scripts/e2e.sh bloqueador-chamadas.apk
+
+  release:
+    name: Publicar release
+    needs: e2e
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: apk
+
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: Bloqueador v1.0.${{ github.run_number }}
           make_latest: true
-          files: bloqueador-chamadas.apk
+          files: |
+            bloqueador-chamadas.apk
+            bloqueador-chamadas.apk.sha256
