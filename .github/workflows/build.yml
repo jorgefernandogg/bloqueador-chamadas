@@ -34,7 +34,7 @@ jobs:
           gradle-version: "9.6.0"
 
       - name: Testes unitários
-        run: gradle :app:testReleaseUnitTest --no-daemon
+        run: gradle :app:testDebugUnitTest --no-daemon
 
       - name: Lint (falha em erro)
         run: gradle :app:lintRelease --no-daemon
