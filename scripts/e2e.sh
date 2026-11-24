@@ -102,6 +102,27 @@ PY
   adb shell input tap $xy
 }
 
+# Rolagem proporcional ao tamanho real da tela do emulador.
+swipe_up() {
+  local size w h
+  size=$(adb shell wm size | tr -d '\r' | grep -o '[0-9]*x[0-9]*' | tail -1)
+  w=${size%x*}; h=${size#*x}
+  adb shell input swipe $((w / 2)) $((h * 3 / 4)) $((w / 2)) $((h / 4)) 400
+}
+
+# Lista os textos visíveis (diagnóstico quando algo não é encontrado).
+dump_texts() {
+  python3 - <<'PY3'
+import xml.etree.ElementTree as ET
+try:
+    for n in ET.parse('/tmp/ui.xml').iter('node'):
+        t = n.get('text') or n.get('content-desc')
+        if t: print('   ui:', t.replace('\n', ' | '))
+except Exception as e:
+    print('   (sem dump)', e)
+PY3
+}
+
 # Só verifica se o elemento existe na tela (sem tocar), rolando se preciso.
 scroll_find() {
   for _ in $(seq 1 8); do
@@ -114,9 +135,10 @@ sys.exit(0 if any(n.get('text') == want or n.get('content-desc') == want
                   for n in ET.parse('/tmp/ui.xml').iter('node')) else 1)
 PY2
     then return 0; fi
-    adb shell input swipe 540 1600 540 600 300
+    swipe_up
     sleep 1
   done
+  dump_texts
   return 1
 }
 
@@ -124,9 +146,10 @@ PY2
 scroll_and_tap() {
   for _ in $(seq 1 8); do
     if tap_ui "$1"; then return 0; fi
-    adb shell input swipe 540 1600 540 600 300
+    swipe_up
     sleep 1
   done
+  dump_texts
   return 1
 }
 
