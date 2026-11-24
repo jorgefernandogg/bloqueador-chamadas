@@ -22,7 +22,8 @@ adb wait-for-device
 adb shell 'while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 2; done'
 
 echo "== Instalando APK"
-adb install -r "$APK"
+adb uninstall "$PKG" >/dev/null 2>&1 || true
+adb install "$APK"
 
 echo "== Permissão de contatos"
 adb shell pm grant "$PKG" android.permission.READ_CONTACTS
@@ -78,4 +79,85 @@ echo "tipo desconhecido=$t_desc contato=$t_cont  (1=recebida 3=perdida 5=rejeita
 [[ "$t_desc" == "5" || "$t_desc" == "6" ]] || fail "desconhecido NÃO foi bloqueado (type=$t_desc)"
 [[ "$t_cont" == "1" || "$t_cont" == "3" ]] || fail "contato foi bloqueado ou não registrado (type=$t_cont)"
 
-echo "✅ E2E OK: desconhecido bloqueado, contato liberado"
+echo "✅ Bloqueio OK: desconhecido bloqueado, contato liberado"
+
+# ---------- v2: histórico em sanfona + liberar número pela tela ----------
+
+# Toca no elemento cujo texto ou content-desc é exatamente $1.
+tap_ui() {
+  adb shell uiautomator dump /sdcard/ui.xml >/dev/null
+  adb pull /sdcard/ui.xml /tmp/ui.xml >/dev/null
+  local xy
+  xy=$(python3 - "$1" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+want = sys.argv[1]
+for n in ET.parse('/tmp/ui.xml').iter('node'):
+    if n.get('text') == want or n.get('content-desc') == want:
+        x1, y1, x2, y2 = map(int, re.findall(r'\d+', n.get('bounds')))
+        print((x1 + x2) // 2, (y1 + y2) // 2)
+        break
+PY
+)
+  [[ -n "$xy" ]] || return 1
+  adb shell input tap $xy
+}
+
+# Só verifica se o elemento existe na tela (sem tocar), rolando se preciso.
+scroll_find() {
+  for _ in $(seq 1 8); do
+    adb shell uiautomator dump /sdcard/ui.xml >/dev/null
+    adb pull /sdcard/ui.xml /tmp/ui.xml >/dev/null
+    if python3 - "$1" <<'PY2'
+import sys, xml.etree.ElementTree as ET
+want = sys.argv[1]
+sys.exit(0 if any(n.get('text') == want or n.get('content-desc') == want
+                  for n in ET.parse('/tmp/ui.xml').iter('node')) else 1)
+PY2
+    then return 0; fi
+    adb shell input swipe 540 1600 540 600 300
+    sleep 1
+  done
+  return 1
+}
+
+# Rola a lista até achar o elemento e toca nele.
+scroll_and_tap() {
+  for _ in $(seq 1 8); do
+    if tap_ui "$1"; then return 0; fi
+    adb shell input swipe 540 1600 540 600 300
+    sleep 1
+  done
+  return 1
+}
+
+echo "== Abrindo o app"
+adb shell am start -W -n "$PKG/.MainActivity" >/dev/null
+sleep 3
+
+echo "== Expandindo 'Hoje' na sanfona"
+scroll_and_tap "Hoje" || fail "dia 'Hoje' não apareceu no histórico"
+sleep 2
+
+echo "== Tocando em Liberar $DESCONHECIDO"
+scroll_and_tap "Liberar $DESCONHECIDO" || fail "botão Liberar do número bloqueado não apareceu"
+sleep 3
+# Fecha a tela de novo contato (aberta pelo Liberar) sem salvar.
+adb shell input keyevent KEYCODE_HOME
+sleep 2
+
+echo "== Conferindo que o app mostra o número em 'Números liberados'"
+adb shell am start -W -n "$PKG/.MainActivity" >/dev/null
+sleep 3
+scroll_and_tap "Números liberados" || fail "grupo 'Números liberados' não apareceu"
+sleep 2
+scroll_find "Remover $DESCONHECIDO" || fail "número liberado não aparece na lista de liberados"
+adb shell input keyevent KEYCODE_HOME
+sleep 2
+
+simulate_call "$DESCONHECIDO"
+log=$(adb shell content query --uri content://call_log/calls --projection number:type | tr -d '\r')
+t_lib=$(type_of "$DESCONHECIDO")
+echo "tipo após liberar=$t_lib"
+[[ "$t_lib" == "1" || "$t_lib" == "3" ]] || fail "número liberado continuou bloqueado (type=$t_lib)"
+
+echo "✅ E2E OK: bloqueio, histórico em sanfona e liberação funcionando"

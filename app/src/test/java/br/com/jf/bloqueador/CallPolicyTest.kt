@@ -8,6 +8,7 @@ class CallPolicyTest {
     private val contato = "+5548999990001"
     private val desconhecido = "+5548988887777"
     private val agenda: (String) -> Boolean? = { it == contato }
+    private val nenhumLiberado: (String) -> Boolean? = { false }
 
     private fun decide(
         isIncoming: Boolean = true,
@@ -15,8 +16,11 @@ class CallPolicyTest {
         enabled: Boolean = true,
         blockHidden: Boolean = true,
         hasContactsPermission: Boolean = true,
+        isAllowListed: (String) -> Boolean? = nenhumLiberado,
         lookup: (String) -> Boolean? = agenda,
-    ) = CallPolicy.decide(isIncoming, number, enabled, blockHidden, hasContactsPermission, lookup)
+    ) = CallPolicy.decide(
+        isIncoming, number, enabled, blockHidden, hasContactsPermission, isAllowListed, lookup
+    )
 
     @Test fun `desconhecido e bloqueado`() =
         assertEquals(Decision.BLOCK, decide())
@@ -63,6 +67,40 @@ class CallPolicyTest {
     @Test fun `ligacao feita nao consulta a agenda`() {
         var consultou = false
         decide(isIncoming = false, lookup = { consultou = true; false })
+        assertEquals(false, consultou)
+    }
+
+    // ---- Lista de liberados (v2) ----
+
+    @Test fun `liberado passa mesmo fora da agenda`() =
+        assertEquals(Decision.ALLOW, decide(isAllowListed = { it == desconhecido }))
+
+    @Test fun `liberado passa mesmo sem permissao de contatos`() =
+        assertEquals(
+            Decision.ALLOW,
+            decide(hasContactsPermission = false, isAllowListed = { true })
+        )
+
+    @Test fun `liberado nao precisa consultar a agenda`() {
+        var consultou = false
+        decide(isAllowListed = { true }, lookup = { consultou = true; false })
+        assertEquals(false, consultou)
+    }
+
+    @Test fun `erro na lista de liberados cai na regra da agenda`() {
+        assertEquals(Decision.BLOCK, decide(isAllowListed = { throw IllegalStateException() }))
+        assertEquals(
+            Decision.ALLOW,
+            decide(number = contato, isAllowListed = { throw IllegalStateException() })
+        )
+    }
+
+    @Test fun `lista de liberados indisponivel cai na regra da agenda`() =
+        assertEquals(Decision.BLOCK, decide(isAllowListed = { null }))
+
+    @Test fun `oculto nao consulta lista de liberados`() {
+        var consultou = false
+        decide(number = null, isAllowListed = { consultou = true; true })
         assertEquals(false, consultou)
     }
 }

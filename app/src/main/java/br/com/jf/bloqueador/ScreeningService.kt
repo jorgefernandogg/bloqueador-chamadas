@@ -17,8 +17,10 @@ class ScreeningService : CallScreeningService() {
 
     override fun onScreenCall(callDetails: Call.Details) {
         val allow = CallResponse.Builder().build()
+        var store: HistoryStore? = null
         try {
             val prefs = Prefs(this)
+            store = HistoryStore(this)
             val number = callDetails.handle?.schemeSpecificPart
 
             val decision = CallPolicy.decide(
@@ -28,14 +30,19 @@ class ScreeningService : CallScreeningService() {
                 blockHidden = prefs.blockHidden,
                 hasContactsPermission = checkSelfPermission(Manifest.permission.READ_CONTACTS) ==
                     PackageManager.PERMISSION_GRANTED,
+                isAllowListed = store::isAllowed,
                 lookup = ::isInContacts,
             )
 
             if (decision == Decision.BLOCK) {
-                prefs.registerBlocked(
-                    if (number.isNullOrBlank()) "número oculto" else number.trim()
-                )
-                respondToCall(callDetails, blockResponse(prefs.rejectMode))
+                val reject = prefs.rejectMode
+                // Responde primeiro: o aparelho só toca/rejeita depois da resposta.
+                respondToCall(callDetails, blockResponse(reject))
+                try {
+                    store.recordBlocked(System.currentTimeMillis(), number, reject)
+                } catch (t: Throwable) {
+                    Log.e(TAG, "Falha ao gravar histórico: ${t.javaClass.simpleName}")
+                }
             } else {
                 respondToCall(callDetails, allow)
             }
@@ -44,6 +51,11 @@ class ScreeningService : CallScreeningService() {
             Log.e(TAG, "Erro na triagem, liberando a ligação: ${t.javaClass.simpleName}")
             try {
                 respondToCall(callDetails, allow)
+            } catch (_: Throwable) {
+            }
+        } finally {
+            try {
+                store?.close()
             } catch (_: Throwable) {
             }
         }
