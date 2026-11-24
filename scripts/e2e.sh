@@ -168,7 +168,12 @@ sleep 3
 echo "== Conferindo que o app mostra o número em 'Números liberados'"
 # Garante que a tela de contato foi aberta com o número preenchido.
 scroll_find "$DESCONHECIDO" || fail "tela de novo contato não abriu com o número"
-# Reabre o app do zero (o editor de contato fica por cima na mesma tarefa).
+# Fecha o editor de contato sem salvar e reabre o app do zero.
+fg=$(adb shell dumpsys window | tr -d '\r' | grep -m1 -oE 'mCurrentFocus=[^ ]+ [^ ]+ [^/ ]+' | awk '{print $NF}')
+echo "app em primeiro plano: $fg"
+[[ -n "$fg" && "$fg" != "$PKG" ]] && adb shell am force-stop "$fg"
+adb shell am force-stop com.android.contacts || true
+adb shell am force-stop com.google.android.contacts || true
 adb shell am start -S -W -n "$PKG/.MainActivity" >/dev/null
 sleep 3
 scroll_and_tap "Números liberados" || fail "grupo 'Números liberados' não apareceu"
