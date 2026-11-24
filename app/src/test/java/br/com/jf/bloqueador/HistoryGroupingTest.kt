@@ -112,7 +112,8 @@ class HistoryGroupingTest {
         val hoje = LocalDate.of(2026, 11, 24) // terça
         assertEquals("Hoje", HistoryGrouping.dayLabel(hoje, hoje))
         assertEquals("Ontem", HistoryGrouping.dayLabel(hoje.minusDays(1), hoje))
-        assertEquals("Sáb, 22/11", HistoryGrouping.dayLabel(LocalDate.of(2026, 11, 22), hoje))
+        assertEquals("Dom, 22/11", HistoryGrouping.dayLabel(LocalDate.of(2026, 11, 22), hoje))
+        assertEquals("Sáb, 21/11", HistoryGrouping.dayLabel(LocalDate.of(2026, 11, 21), hoje))
         assertEquals("Seg, 02/03", HistoryGrouping.dayLabel(LocalDate.of(2026, 3, 2), hoje))
         assertEquals("Seg, 01/12/2025", HistoryGrouping.dayLabel(LocalDate.of(2025, 12, 1), hoje))
     }

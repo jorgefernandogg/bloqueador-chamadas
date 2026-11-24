@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import android.os.Build
 import android.telephony.PhoneNumberUtils
 import java.util.concurrent.TimeUnit
 
@@ -106,6 +107,12 @@ class HistoryStore(context: Context, dbName: String = DB_NAME) :
         const val RETENTION_DAYS = 90L
 
         /** Igualdade de telefones tolerante a formato (+55, DDD, espaços, traços). */
-        fun sameNumber(a: String, b: String): Boolean = PhoneNumberUtils.compare(a, b)
+        @Suppress("DEPRECATION")
+        fun sameNumber(a: String, b: String): Boolean =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                PhoneNumberUtils.areSamePhoneNumber(a, b, "br")
+            } else {
+                PhoneNumberUtils.compare(a, b)
+            }
     }
 }
