@@ -164,12 +164,12 @@ sleep 2
 echo "== Tocando em Liberar $DESCONHECIDO"
 scroll_and_tap "Liberar $DESCONHECIDO" || fail "botão Liberar do número bloqueado não apareceu"
 sleep 3
-# Fecha a tela de novo contato (aberta pelo Liberar) sem salvar.
-adb shell input keyevent KEYCODE_HOME
-sleep 2
 
 echo "== Conferindo que o app mostra o número em 'Números liberados'"
-adb shell am start -W -n "$PKG/.MainActivity" >/dev/null
+# Garante que a tela de contato foi aberta com o número preenchido.
+scroll_find "$DESCONHECIDO" || fail "tela de novo contato não abriu com o número"
+# Reabre o app do zero (o editor de contato fica por cima na mesma tarefa).
+adb shell am start -S -W -n "$PKG/.MainActivity" >/dev/null
 sleep 3
 scroll_and_tap "Números liberados" || fail "grupo 'Números liberados' não apareceu"
 sleep 2
